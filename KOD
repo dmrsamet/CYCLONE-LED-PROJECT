@@ -1,0 +1,183 @@
+/* LEDGame.ino - Arduino Cyclone Arcade Game
+   Author: Lukas Severinghaus, thecentralthinkingunit.blogspot.com
+   Created: July 14 2017
+   Last Modified: July 15 2017
+   
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+
+#include "FastLED.h"
+
+// How many leds in your strip?
+#define NUM_LEDS 27 //EDIT THIS LINE TO MATCH YOUR SET
+
+// Which number led is the center?
+#define CENTER_LED 14 //EDIT THIS LINE TO MATCH YOUR SETUP 
+
+// What pin is the strip connected to?
+#define DATA_PIN 7 //EDIT THIS LINE TO MATCH YOUR SETUP
+
+// What type of led is the strip?
+#define LED_TYPE WS2812B //EDIT THIS LINE TO MATCH YOUR SETUP
+
+// What color order does the led strip use?
+#define COLOR_ORDER GRB //EDIT THIS LINE TO MATCH YOUR SETUP
+
+// What brightness should the leds be(range 0-64)?
+#define BRIGHTNESS 32
+//Definition of difficulty levels
+#define NONE 0
+#define EASY 1
+#define MEDIUM 2
+#define HARD 3
+//Current difficulty
+int difficulty = 0;
+
+//Current tally of wins/losses
+int wins = 0;
+int losses = 0;
+
+// Define the array of leds
+CRGB leds[NUM_LEDS];
+
+
+// Did player win this round?
+boolean wonThisRound = false;
+
+// Location of the scrolling piece
+int index = 0;
+// Is game running?
+
+boolean playing = true;
+
+// Is this the first time won loop has run?
+boolean firstDone = true;
+
+void setup() {
+  FastLED.addLeds<LED_TYPE, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS);// Initialize the led library
+  FastLED.setBrightness(BRIGHTNESS);// Set the brightness of the leds
+  Serial.begin(9600);// Initialize Serial
+  setLevel();// Get the desired level from the player and set it
+  Serial.println("Press any key to stop the green led. Stop on the aqua led to win.");
+}
+
+void setLevel() { // Sets level from user input
+  boolean done = false;
+  Serial.println("Please select difficulty(E - Easy, M - Medium, H - Hard):");
+  while (!done) { // While no accepted answer
+    if (Serial.available() > 0) { // If Serial available
+      char c = Serial.read();// Read the char from Serial
+      if (c == 'e' || c == 'E') { // If char is E or e
+        difficulty = EASY; // Set difficulty to Easy
+      } else if (c == 'm' || c == 'M') { // If char is M or m
+        difficulty = MEDIUM;// Set difficulty to Medium
+      } else if (c == 'h' || c == 'H') { // If char is H or h
+        difficulty = HARD;// Set difficulty to Hard
+      }
+      if (difficulty != NONE) { // If difficulty has been set
+        done = true;// Stop looping
+      }
+    }
+  }
+}
+
+void loop() {
+  if (playing) { //If game is running
+    for (int i = 0; i < NUM_LEDS; i++) { // Set all leds to black
+      leds[i] = CRGB::Black;
+    }
+    leds[CENTER_LED] = CRGB::Aqua;// Set center led to aqua
+    leds[index] = CRGB::Green;// Set scrolling led to green
+    FastLED.show();// Display the leds
+    index++;// Move the scrolling piece
+    if (index == NUM_LEDS) { // If scrolling piece at end, restart at beginning
+      index = 0;
+    }
+    
+    checkSerial();// Check for player input
+    
+    delay(getTime(difficulty));// Set looptime depending on difficulty
+  } else { // Game over
+    for (int i = 0; i < NUM_LEDS; i++) { // Set all leds to black
+      leds[i] = CRGB::Black;
+    }
+    leds[CENTER_LED] = CRGB::Grey;// Set center to grey(Grey is a less bright version of white)
+    leds[index] = CRGB::Red;// Set scrolling piece to red
+    FastLED.show();// Show the leds
+
+    if (firstDone) {// If first time won loop has run
+      int diff = abs(CENTER_LED - index); // Find distance between scrolling led and center
+      if (diff == 0) {// If distance = 0 aka player stopped led in center
+        wins++;// Increase win tally
+        Serial.println("You won!");// Print win message
+        wonThisRound = true;// Set win flag to true
+      } else {// Player did not win
+        losses++;// Increase loss tally
+        Serial.print("You were off by: ");// Print out how far away the player was
+        Serial.println(diff);
+      }
+      Serial.println("Press any key to restart");// Print restart message
+      
+      Serial.println("Current Tally:");// Print current tally
+      Serial.print("Losses: ");
+      Serial.print(losses);
+      Serial.print("\tWins: ");
+      Serial.println(wins);
+      
+      firstDone = false;// Set first won loop flag to false
+    }
+    checkSerial(); // Check for player input
+  }
+}
+
+int getTime(int diff) {// Returns time delay for led movement base on difficulty
+  int timeValue = 0;// Time delay
+  
+  switch (diff) {
+    case EASY:
+      timeValue = 75;
+      break;
+    case MEDIUM:
+      timeValue = abs(index - CENTER_LED) * 25;// Delay time is 25 * distance from center, in milliseconds
+      break;
+    case HARD:
+      timeValue = abs(index - 14) * 10;// Delay time is 10 * distance from center, in milliseconds
+  }
+
+  return timeValue;// Return the delay amount
+}
+void checkSerial() {// Checks for player input
+  if (Serial.available() > 0) { // If Serial data available
+    byte a = Serial.read();// Clear the character from the Serial buffer
+    
+    if (!playing) {// If game was not running
+      // Game is restarting
+      index = 0;// Set led position to 0
+      firstDone = true;// Set won loop flag to true
+      playing = true;// Set game playing flag to true
+      increaseDifficulty();// Increase the difficulty
+      wonThisRound = false;// Set win flag to false
+    } else {// Game is over
+      playing = false;// Set game playing flag to false
+    }
+  }
+}
+
+void increaseDifficulty() {// Increases the difficulty, if possible. Called on round won.
+  if (difficulty != HARD && wonThisRound) {// If not hard difficulty and player won this round
+    difficulty++;// Increase the difficulty
+    Serial.println("Difficulty increased.");// Let the player know the difficulty was increased
+  }
+}
